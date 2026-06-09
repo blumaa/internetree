@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createLocalBackend } from '../backend/localBackend'
+import { createRemoteBackend } from '../backend/remoteBackend'
 import { getDeviceId } from '../backend/deviceId'
 import type { LoadResult, RemoteTree, TendResult, TreeBackend } from '../backend/types'
 import type { TreeState } from '../engine/types'
@@ -42,7 +43,14 @@ function diff(prev: TreeState, next: TreeState): Delta {
   }
 }
 
-export function useInternetree(backend: TreeBackend = createLocalBackend()): Internetree {
+// Remote (shared) backend when configured; the local single-browser sim otherwise
+// (so dev works with no backend). One shared instance.
+const SUPA_URL = import.meta.env.VITE_SUPABASE_URL
+const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
+const defaultBackend: TreeBackend =
+  SUPA_URL && SUPA_KEY ? createRemoteBackend(SUPA_URL, SUPA_KEY) : createLocalBackend()
+
+export function useInternetree(backend: TreeBackend = defaultBackend): Internetree {
   const [remote, setRemote] = useState<RemoteTree>(() => ({
     tree: createTree(0),
     history: [],

@@ -1,7 +1,7 @@
 // Provisional, tunable values. Numeric balance is a playtest concern (PLAN.md "Open").
 // The engine reads ONLY from here — never inline magic numbers in tree.ts.
 
-import type { Stage } from './types'
+import type { Stage } from './types.ts'
 
 export const HEALTH_MAX = 100
 

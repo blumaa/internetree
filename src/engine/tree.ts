@@ -1,4 +1,4 @@
-import type { Mood, Stage, TreeState } from './types'
+import type { Mood, Stage, TreeState } from './types.ts'
 import {
   HEALTH_MAX,
   TEND_BUMP,
@@ -12,7 +12,7 @@ import {
   STAGES,
   STAGE_THRESHOLDS,
   MOOD_THRESHOLDS,
-} from './config'
+} from './config.ts'
 
 /** Create a fresh, healthy sprout for the given generation. */
 export function createTree(now: number, generation = 1): TreeState {
