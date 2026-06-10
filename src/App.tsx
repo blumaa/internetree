@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Analytics } from '@vercel/analytics/react'
 import { useInternetree, type Delta } from './sim/useInternetree'
 import { Timeline } from './render/Timeline'
 import { Motes } from './render/Motes'
@@ -140,6 +141,7 @@ function App() {
           )}
         </>
       )}
+      <Analytics />
     </div>
   )
 }
