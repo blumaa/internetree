@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import gsap from 'gsap'
 import type { TreeState } from '../engine/types'
 import { visualFor } from './visual'
-import { varyOak, type OakStage } from './oakSkeleton'
+import { varyOak, crownHeightWeight, TRUNK_X, type OakStage } from './oakSkeleton'
 import { OakShapes } from './OakShapes'
 import { useReducedMotion } from './useReducedMotion'
+import { breeze, approach, tauFor } from './wind'
 import { SHED_HEALTH } from '../engine/config'
 
 /**
@@ -62,12 +63,15 @@ export function OakTree({
   // Growth: the whole tree scales up from the trunk base (stays rooted), with a gentle
   // bloom on promotion. NO rotation here — the trunk + roots must never tilt off the ground.
   useEffect(() => {
-    gsap.to(bodyRef.current, {
+    const tween = gsap.to(bodyRef.current, {
       scale: visual.scale,
       svgOrigin: '130 244', // pivot at the trunk base
       duration: 1.1,
       ease: 'elastic.out(0.5, 0.7)',
     })
+    return () => {
+      tween.kill()
+    }
   }, [visual.scale])
 
   // Wilt = a DISTRIBUTED droop, not a rigid block moving. As health falls, each leaf mass
@@ -78,27 +82,32 @@ export function OakTree({
     const crown = crownRef.current
     if (!crown) return
     const masses = gsap.utils.toArray<SVGElement>(crown.querySelectorAll('.leaf-mass'))
+    const tweens: gsap.core.Tween[] = []
     masses.forEach((m, i) => {
       const c = oak.crown[i]
       if (!c) return
-      const height = gsap.utils.clamp(0, 1, (202 - c.cy) / 130) // 0 low → 1 top of crown
-      gsap.to(m, { y: visual.lean * (0.3 + 0.5 * height), duration: 1, ease: 'power2.out' })
+      const height = gsap.utils.clamp(0, 1, crownHeightWeight(c.cy)) // 0 low → 1 top of crown
+      tweens.push(gsap.to(m, { y: visual.lean * (0.3 + 0.5 * height), duration: 1, ease: 'power2.out' }))
     })
+    return () => tweens.forEach((t) => t.kill())
   }, [visual.lean, oak])
 
   // Health mood-layer: recolour gradients, thin the crown.
   useEffect(() => {
-    gsap.to(coreStopRef.current, { attr: { 'stop-color': visual.canopyCore }, duration: 1 })
-    gsap.to(rimStopRef.current, { attr: { 'stop-color': visual.canopyRim }, duration: 1 })
-    gsap.to(barkLightRef.current, { attr: { 'stop-color': visual.trunkLight }, duration: 1 })
-    gsap.to(barkDarkRef.current, { attr: { 'stop-color': visual.trunkDark }, duration: 1 })
-    // Health changes FULLNESS (opacity), never SIZE — so nothing jumps on a mood change.
-    gsap.to(crownRef.current, {
-      opacity: 0.35 + 0.65 * visual.leafiness,
-      duration: 1,
-      ease: 'power2.out',
-    })
-    gsap.to(glowRef.current, { opacity: visual.glow, duration: 1 })
+    const tweens = [
+      gsap.to(coreStopRef.current, { attr: { 'stop-color': visual.canopyCore }, duration: 1 }),
+      gsap.to(rimStopRef.current, { attr: { 'stop-color': visual.canopyRim }, duration: 1 }),
+      gsap.to(barkLightRef.current, { attr: { 'stop-color': visual.trunkLight }, duration: 1 }),
+      gsap.to(barkDarkRef.current, { attr: { 'stop-color': visual.trunkDark }, duration: 1 }),
+      // Health changes FULLNESS (opacity), never SIZE — so nothing jumps on a mood change.
+      gsap.to(crownRef.current, {
+        opacity: 0.35 + 0.65 * visual.leafiness,
+        duration: 1,
+        ease: 'power2.out',
+      }),
+      gsap.to(glowRef.current, { opacity: visual.glow, duration: 1 }),
+    ]
+    return () => tweens.forEach((t) => t.kill())
   }, [
     visual.canopyCore,
     visual.canopyRim,
@@ -109,70 +118,92 @@ export function OakTree({
   ])
 
   useEffect(() => {
-    gsap.to(groundRef.current, { attr: { rx: shadowRx, ry: shadowRx * 0.16 }, duration: 1 })
+    const tween = gsap.to(groundRef.current, { attr: { rx: shadowRx, ry: shadowRx * 0.16 }, duration: 1 })
+    return () => {
+      tween.kill()
+    }
   }, [shadowRx])
 
-  // Always-alive idle motion — each leaf mass sways on its own phase + speed, so the
-  // canopy shimmers like real foliage instead of rotating as one rigid clump. Each
-  // blob rotates about its own centre (GSAP's default SVG origin = its bounding box).
+  // Wind — ONE shared wind signal (layered-sine breeze + scheduled irregular gusts)
+  // that every `.wind-sway` part follows by rotating about its own attach point,
+  // each through its own low-pass filter. Exposure (stamped by OakShapes) makes the
+  // high outer canopy whip while the sheltered core barely stirs; the lag differential
+  // (tauFor) makes gusts ripple through stiff wood late — so trunk, branches, boughs
+  // and leaves move as one connected tree, never as independent uniform jiggle.
   useEffect(() => {
-    const crown = crownRef.current
-    if (!crown || reduced) return
-    const masses = gsap.utils.toArray<SVGElement>(crown.querySelectorAll('.leaf-mass'))
-    // repeatRefresh re-rolls the random() values every cycle → no two sways alike.
-    // Rotation only — the per-leaf `y` axis is reserved for the wilt droop below.
-    const tweens = masses.map((m) =>
-      gsap.to(m, {
-        rotation: 'random(-3, 3)',
-        duration: 'random(2.4, 5)',
-        repeat: -1,
-        yoyo: true,
-        repeatRefresh: true,
-        ease: 'sine.inOut',
-        delay: gsap.utils.random(0, 2.5),
-      }),
-    )
-    return () => tweens.forEach((t) => t.kill())
-  }, [oak, reduced])
+    const body = bodyRef.current
+    if (!body || reduced) return
+    const els = gsap.utils.toArray<SVGElement>(body.querySelectorAll('.wind-sway'))
+    if (!els.length) return
 
-  // Wind — irregular gusts that ripple across the canopy. Each gust re-randomizes its
-  // interval, strength, and direction, so it never feels like a metronome. Layered on the
-  // x axis so it composes with the idle sway (rotation+y) instead of fighting it.
-  useEffect(() => {
-    const crown = crownRef.current
-    if (!crown || reduced) return
-    const masses = gsap.utils.toArray<SVGElement>(crown.querySelectorAll('.leaf-mass'))
-    if (!masses.length) return
-    const indices = masses.map((_, i) => i)
-    let stopped = false
+    const parts = els.flatMap((el) => {
+      const x = Number(el.dataset.windX)
+      const y = Number(el.dataset.windY)
+      const amp = Number(el.dataset.windAmp)
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(amp)) return []
+      gsap.set(el, { svgOrigin: `${x} ${y}` })
+      return {
+        amp,
+        flutterAmp: 0.55 * Number(el.dataset.windFlutter ?? 1),
+        flutterFreq: gsap.utils.random(9, 16),
+        flutterPhase: gsap.utils.random(0, Math.PI * 2),
+        // phase tied to x → the slow breeze layers travel across the canopy as waves
+        phase: x / 38,
+        // ±10% jitter so cluster decorations never track their mass in robotic lockstep
+        tau: tauFor(amp) * gsap.utils.random(0.9, 1.1),
+        state: 0,
+        setRot: gsap.quickSetter(el, 'rotation', 'deg'),
+      }
+    })
+
+    // The trunk itself flexes a little at the base — the whole tree rides on it.
+    gsap.set(body, { svgOrigin: `${TRUNK_X} 244` })
+    const setTrunk = gsap.quickSetter(body, 'rotation', 'deg')
+    let trunkState = 0
+
+    // Gusts: an occasional surge of force in a random direction, sharp attack and a
+    // long sigh of a release, then a random lull — never a metronome.
+    const gust = { force: 0 }
     let pending: gsap.core.Tween | null = null
-    let live: gsap.core.Tween[] = []
-
-    const gust = () => {
-      if (stopped) return
-      live.forEach((t) => t.kill())
-      const dir = Math.random() < 0.5 ? 1 : -1 // breeze sweeps left→right or right→left
-      const strength = gsap.utils.random(3, 9)
-      const order = [...indices].sort((a, b) => (oak.crown[a].cx - oak.crown[b].cx) * dir)
-      live = order.map((idx, rank) =>
-        gsap.to(masses[idx], {
-          x: dir * strength * gsap.utils.random(0.7, 1.2),
-          duration: gsap.utils.random(0.45, 0.85),
-          delay: rank * gsap.utils.random(0.05, 0.1),
-          yoyo: true,
-          repeat: 1,
-          ease: 'sine.inOut',
-        }),
-      )
-      pending = gsap.delayedCall(gsap.utils.random(3.5, 11), gust)
+    let blow: gsap.core.Timeline | null = null
+    const schedule = () => {
+      pending = gsap.delayedCall(gsap.utils.random(4, 11), () => {
+        const peak = (Math.random() < 0.5 ? -1 : 1) * gsap.utils.random(0.5, 1.3)
+        blow = gsap
+          .timeline({ onComplete: schedule })
+          .to(gust, { force: peak, duration: gsap.utils.random(0.6, 1.3), ease: 'power2.in' })
+          .to(gust, { force: 0, duration: gsap.utils.random(1.8, 3.4), ease: 'sine.out' })
+      })
     }
-    pending = gsap.delayedCall(gsap.utils.random(1.5, 5), gust)
+    schedule()
+
+    let last = gsap.ticker.time
+    const tick = () => {
+      const t = gsap.ticker.time
+      const dt = Math.min(t - last, 0.1) // clamp tab-switch jumps
+      last = t
+      if (dt <= 0) return
+      for (const p of parts) {
+        const target = 0.4 * breeze(t, p.phase) + gust.force
+        p.state = approach(p.state, target, p.tau, dt)
+        // leaf flutter rides the swing and grows with the wind's strength
+        const flutter =
+          Math.sin(t * p.flutterFreq + p.flutterPhase) *
+          p.flutterAmp *
+          (0.3 + 0.7 * Math.min(1, Math.abs(p.state)))
+        p.setRot(p.state * p.amp + flutter)
+      }
+      trunkState = approach(trunkState, 0.4 * breeze(t, TRUNK_X / 38) + gust.force, 0.7, dt)
+      setTrunk(trunkState * 0.7)
+    }
+    gsap.ticker.add(tick)
 
     return () => {
-      stopped = true
+      gsap.ticker.remove(tick)
       pending?.kill()
-      live.forEach((t) => t.kill())
-      gsap.set(masses, { x: 0 })
+      blow?.kill()
+      gsap.set(els, { rotation: 0 })
+      gsap.set(body, { rotation: 0 })
     }
   }, [oak, reduced])
 
@@ -250,7 +281,14 @@ export function OakTree({
   // fromTo with an explicit target (not gsap.from) is StrictMode-safe: a double-invoked
   // effect would otherwise read the just-set opacity:0 as the target and stay invisible.
   useEffect(() => {
-    gsap.fromTo(rootRef.current, { opacity: 0 }, { opacity: 1, duration: 0.8, ease: 'power1.out' })
+    const tween = gsap.fromTo(
+      rootRef.current,
+      { opacity: 0 },
+      { opacity: 1, duration: 0.8, ease: 'power1.out' },
+    )
+    return () => {
+      tween.kill()
+    }
   }, [])
 
   // On a stage promotion, snapshot the previous skeleton as the outgoing ghost.
@@ -357,10 +395,14 @@ export function OakTree({
       viewBox="0 0 260 260"
       role="button"
       aria-label={canTend ? 'tend the tree' : 'tend the tree — your watering can is empty'}
+      aria-disabled={!canTend}
       tabIndex={0}
       onPointerDown={handleTend}
       onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') handleTend()
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault() // Space must tend, not ALSO scroll the page
+          handleTend()
+        }
       }}
     >
       <defs>

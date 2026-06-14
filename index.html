@@ -9,15 +9,16 @@
     <title>Internetree</title>
     <meta name="description" content="One tree, kept alive by the whole internet. Tend it — or it dies." />
 
-    <!-- Open Graph / social card (sharing is the growth loop). TODO: export og.png for full FB/Twitter support. -->
+    <!-- Open Graph / social card (sharing is the growth loop). Crawlers want a raster
+         image and many require an ABSOLUTE og:image URL. -->
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Internetree" />
     <meta property="og:description" content="One tree, kept alive by the whole internet. Tend it — or it dies." />
-    <meta property="og:image" content="/og.svg" />
+    <meta property="og:image" content="https://internetree.vercel.app/og.png" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Internetree" />
     <meta name="twitter:description" content="One tree, kept alive by the whole internet. Tend it — or it dies." />
-    <meta name="twitter:image" content="/og.svg" />
+    <meta name="twitter:image" content="https://internetree.vercel.app/og.png" />
   </head>
   <body>
     <div id="root"></div>

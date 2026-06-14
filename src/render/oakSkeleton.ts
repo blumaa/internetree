@@ -207,6 +207,16 @@ export const OAK_STAGE_COUNT = TEMPLATES.length
 
 const M_POINT = /M\s*(-?\d+\.?\d*)\s+(-?\d+\.?\d*)/
 
+/** The trunk's centreline x in the 260×260 viewBox — the tree's anchor for all geometry. */
+export const TRUNK_X = 130
+
+/**
+ * How high a leaf cluster sits in the crown, 0 (lowest band, cy 202) → 1 (top, cy 72).
+ * The ONE place this geometry mapping lives — both the per-generation crown lean and
+ * the wilt droop weight derive from it. Unclamped; callers clamp if they must.
+ */
+export const crownHeightWeight = (cy: number): number => (202 - cy) / 130
+
 /**
  * Turn a template into a concrete skeleton. When `vary` is set, the whole tree is
  * uniquely seeded by the GENERATION (so every client + every re-render sees the SAME
@@ -234,7 +244,7 @@ function buildOak(t: OakTemplate, generation: number, stageIndex: number, vary: 
 
   const crown: LeafCluster[] = t.crown.map((c) => {
     if (!vary) return { ...c }
-    const heightWeight = (202 - c.cy) / 130
+    const heightWeight = crownHeightWeight(c.cy)
     return {
       cx: c.cx + lean * heightWeight + span(detail, -6, 6),
       cy: c.cy + span(detail, -5, 5),

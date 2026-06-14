@@ -2,9 +2,35 @@ import type { RefObject } from 'react'
 import type { OakStage } from './oakSkeleton'
 import type { TreeVisual } from './visual'
 import { leafyBlobPath } from './leafClump'
+import { exposureAt } from './wind'
 
 // Branch order → stroke width. Trunk is filled separately.
 const LIMB_WIDTH: Record<number, number> = { 1: 8, 2: 4.5, 3: 2.2 }
+
+// Wind responsiveness by part (swing degrees per unit wind, scaled by exposure):
+// leaf masses swing most, upper twigs bend, scaffold limbs barely flex, and the
+// individual edge leaves flutter on top. Stamped as data so the animation layer
+// (OakTree's wind ticker) needs no knowledge of the geometry.
+const WIND_MASS = 4.2
+const WIND_UNDERLAY = 3.4
+const WIND_LIMB: Record<number, number> = { 2: 1.1, 3: 2.4 }
+const WIND_EDGE_LEAF = 5.5
+const WIND_SEED_LEAF = 2.5
+
+// Pivot + amplitude stamps for one wind-swayed element. Cluster decorations (pockets,
+// dapples) reuse their CLUSTER's pivot so each leaf mass swings as one coherent bough.
+function windData(pivotX: number, pivotY: number, mult: number, flutter = 1) {
+  return {
+    'data-wind-x': pivotX.toFixed(1),
+    'data-wind-y': pivotY.toFixed(1),
+    'data-wind-amp': (mult * exposureAt(pivotX, pivotY)).toFixed(2),
+    'data-wind-flutter': flutter,
+  }
+}
+
+/** A leaf mass hangs from its branch — pivot just below centre, where the bough holds it. */
+const massPivot = (c: { cx: number; cy: number; r: number }) =>
+  [c.cx, c.cy + c.r * 0.7] as const
 
 // A single lobed oak leaf, centred at the origin, tip up — placed around the crown
 // edge so the foliage reads as oak leaves, not just blobs.
@@ -52,18 +78,31 @@ export function OakShapes({
         ))}
       </g>
 
-      {/* woody branches, thickest order first */}
+      {/* woody branches, thickest order first — finer orders sway in the wind, rotating
+          about their attach point so they bend WITH the canopy instead of freezing under it */}
       <g stroke="url(#oakBark)" strokeLinecap="round" strokeLinejoin="round" fill="none">
         {[...oak.limbs]
           .sort((a, b) => a.order - b.order)
-          .map((l, i) => (
-            <path
-              key={`l${i}`}
-              d={l.path}
-              strokeWidth={LIMB_WIDTH[l.order] ?? 2}
-              transform={l.rot && l.pivot ? `rotate(${l.rot} ${l.pivot[0]} ${l.pivot[1]})` : undefined}
-            />
-          ))}
+          .map((l, i) => {
+            const limb = (
+              <path
+                d={l.path}
+                strokeWidth={LIMB_WIDTH[l.order] ?? 2}
+                transform={l.rot && l.pivot ? `rotate(${l.rot} ${l.pivot[0]} ${l.pivot[1]})` : undefined}
+              />
+            )
+            return l.order >= 2 && l.pivot ? (
+              <g
+                key={`l${i}`}
+                className="wind-sway"
+                {...windData(l.pivot[0], l.pivot[1], WIND_LIMB[l.order] ?? 1, 0.3)}
+              >
+                {limb}
+              </g>
+            ) : (
+              <g key={`l${i}`}>{limb}</g>
+            )
+          })}
       </g>
 
       {/* trunk */}
@@ -87,33 +126,45 @@ export function OakShapes({
       <g ref={crownRef} filter="url(#oakShadow)">
         <circle ref={glowRef} cx={cx} cy={cy} r="78" fill="url(#oakGlow)" opacity={visual.glow} />
         {oak.seedLeaves.map((leaf, i) => (
-          <ellipse
-            key={`s${i}`}
-            cx={leaf.cx}
-            cy={leaf.cy}
-            rx="8"
-            ry="4.5"
-            fill="url(#oakCanopy)"
-            transform={`rotate(${leaf.rot} ${leaf.cx} ${leaf.cy})`}
-          />
+          <g key={`s${i}`} className="wind-sway" {...windData(leaf.cx, leaf.cy + 3, WIND_SEED_LEAF, 2)}>
+            <ellipse
+              cx={leaf.cx}
+              cy={leaf.cy}
+              rx="8"
+              ry="4.5"
+              fill="url(#oakCanopy)"
+              transform={`rotate(${leaf.rot} ${leaf.cx} ${leaf.cy})`}
+            />
+          </g>
         ))}
+        {/* depth underlay — swings with its cluster, a touch softer, for gentle parallax */}
         {oak.crown.map((c, i) => (
           <path
             key={`cs${i}`}
+            className="wind-sway"
+            {...windData(...massPivot(c), WIND_UNDERLAY)}
             d={leafyBlobPath(c.cx, c.cy + c.r * 0.14, c.r * 0.97)}
             fill={visual.canopyCore}
             opacity="0.4"
           />
         ))}
         {oak.crown.map((c, i) => (
-          <path key={`c${i}`} className="leaf-mass" d={leafyBlobPath(c.cx, c.cy, c.r)} fill="url(#oakCanopy)" />
+          <path
+            key={`c${i}`}
+            className="leaf-mass wind-sway"
+            {...windData(...massPivot(c), WIND_MASS)}
+            d={leafyBlobPath(c.cx, c.cy, c.r)}
+            fill="url(#oakCanopy)"
+          />
         ))}
-        {/* tonal variation — deeper pockets on some clusters give the canopy depth */}
+        {/* tonal variation — deeper pockets ride their cluster's swing */}
         {oak.crown
           .filter((_, i) => i % 3 === 1)
           .map((c, i) => (
             <circle
               key={`dp${i}`}
+              className="wind-sway"
+              {...windData(...massPivot(c), WIND_MASS)}
               cx={c.cx + c.r * 0.22}
               cy={c.cy + c.r * 0.28}
               r={c.r * 0.55}
@@ -121,23 +172,26 @@ export function OakShapes({
               opacity="0.22"
             />
           ))}
-        {/* individual lobed leaves around the edge */}
+        {/* individual lobed leaves around the edge — the fast-flutter layer */}
         {edgeLeaves.map((l, i) => (
-          <path
-            key={`el${i}`}
-            className="edge-leaf"
-            d={OAK_LEAF}
-            fill={visual.canopyRim}
-            opacity="0.92"
-            transform={`translate(${l.lx} ${l.ly}) rotate(${l.deg}) scale(${l.s})`}
-          />
+          <g key={`el${i}`} className="wind-sway" {...windData(l.lx, l.ly, WIND_EDGE_LEAF, 3)}>
+            <path
+              className="edge-leaf"
+              d={OAK_LEAF}
+              fill={visual.canopyRim}
+              opacity="0.92"
+              transform={`translate(${l.lx} ${l.ly}) rotate(${l.deg}) scale(${l.s})`}
+            />
+          </g>
         ))}
-        {/* dappled sunlight — brighter patches across the canopy */}
+        {/* dappled sunlight — brighter patches, riding their cluster */}
         {oak.crown
           .filter((c) => c.r >= 16)
           .map((c, i) => (
             <ellipse
               key={`d${i}`}
+              className="wind-sway"
+              {...windData(...massPivot(c), WIND_MASS)}
               cx={c.cx - c.r * 0.28}
               cy={c.cy - c.r * 0.34}
               rx={c.r * 0.32}

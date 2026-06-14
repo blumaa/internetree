@@ -41,6 +41,12 @@ export const MOURNING_MS = 60 * 60 * 1000 // 1 hour
 export const TEND_BUCKET_CAP = 5
 export const TEND_REFILL_MS = 3 * 60 * 1000 // one drop every 3 minutes
 
+// Per-IP flood ceiling (server-side): the device bucket alone is bypassable by rotating
+// device ids, so the Edge Function ALSO buckets tends per IP. Generous enough for a whole
+// office/NAT of genuine keepers, but bounds what one connection can flood.
+export const IP_BUCKET_CAP = 60
+export const IP_REFILL_MS = 30 * 1000 // sustained ceiling: one tend every 30s per IP
+
 // Reconstructing "the crowd" from recent tends (no realtime needed):
 /** Distinct people who tended within this window = "kept alive by N people". */
 export const KEEPER_WINDOW_MS = 24 * 60 * 60 * 1000 // 24 hours
@@ -48,6 +54,8 @@ export const KEEPER_WINDOW_MS = 24 * 60 * 60 * 1000 // 24 hours
 export const MOTE_WINDOW_MS = 5 * 60 * 1000 // 5 minutes
 /** Cap the stored tend log so it can't grow unbounded. */
 export const TEND_LOG_CAP = 1000
+/** Most past generations kept/returned for the timeline — bounds storage AND payload. */
+export const HISTORY_CAP = 100
 
 /** Stage names in order, smallest to largest. */
 export const STAGES: readonly Stage[] = ['sprout', 'sapling', 'young', 'mature', 'ancient']

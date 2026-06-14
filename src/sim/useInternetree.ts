@@ -4,7 +4,7 @@ import { createRemoteBackend } from '../backend/remoteBackend'
 import { getDeviceId } from '../backend/deviceId'
 import type { LoadResult, RemoteTree, TendResult, TreeBackend } from '../backend/types'
 import type { TreeState } from '../engine/types'
-import { createTree, stageIndexFor } from '../engine/tree'
+import { createTree, moodFor, stageIndexFor } from '../engine/tree'
 import { TEND_BUCKET_CAP } from '../engine/config'
 
 // What changed since you last looked — shown as the "while you were away" catch-up.
@@ -13,6 +13,17 @@ export interface Delta {
   grew: boolean
   newGeneration: boolean
   healthDelta: number
+  /** The tree was critical last look and strangers pulled it back. */
+  rescued: boolean
+}
+
+// The visitor's own last act of care — drives the "+care" confirmation.
+export interface LastTend {
+  /** Fresh per tend so the confirmation re-animates on every tap. */
+  id: number
+  accepted: boolean
+  /** The tree was wilting or critical when this tend landed — earns a thank-you. */
+  wasStruggling: boolean
 }
 
 export interface Internetree {
@@ -28,8 +39,11 @@ export interface Internetree {
   tokens: number
   maxTokens: number
   canTend: boolean
+  /** When the next watering-can drop lands (0 = not refilling). */
+  nextTokenAt: number
   lastDelta: Delta | null
   dismissDelta: () => void
+  lastTend: LastTend | null
   dev: { advance: (ms: number) => void; simulateStrangers: (n: number) => void }
 }
 
@@ -40,6 +54,7 @@ function diff(prev: TreeState, next: TreeState): Delta {
     grew: stageIndexFor(next.growth) > stageIndexFor(prev.growth),
     newGeneration,
     healthDelta: Math.round(next.health - prev.health),
+    rescued: !newGeneration && prev.status === 'critical' && next.status === 'alive',
   }
 }
 
@@ -57,11 +72,14 @@ export function useInternetree(backend: TreeBackend = defaultBackend): Internetr
     keepers: 0,
     recentTends: [],
   }))
-  const [syncing, setSyncing] = useState(false)
+  // true from the start: the mount effect always begins with a load.
+  const [syncing, setSyncing] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tokens, setTokens] = useState(TEND_BUCKET_CAP)
   const [nextTokenAt, setNextTokenAt] = useState(0)
   const [lastDelta, setLastDelta] = useState<Delta | null>(null)
+  const [lastTend, setLastTend] = useState<LastTend | null>(null)
+  const tendIdRef = useRef(0)
 
   const deviceIdRef = useRef('')
   const offsetRef = useRef(0)
@@ -70,7 +88,8 @@ export function useInternetree(backend: TreeBackend = defaultBackend): Internetr
   // and must always apply, so it gets no version guard.
   const loadReqRef = useRef(0)
 
-  const now = () => Date.now() + offsetRef.current
+  // Stable: reads the dev time-offset ref, so effects can depend on it safely.
+  const now = useCallback(() => Date.now() + offsetRef.current, [])
 
   const apply = useCallback((res: LoadResult | TendResult, computeDelta: boolean) => {
     const prev = prevTreeRef.current
@@ -82,28 +101,51 @@ export function useInternetree(backend: TreeBackend = defaultBackend): Internetr
     setError(null)
   }, [])
 
+  // One load path for mount + manual sync — only the delta flag differs (the very
+  // first look shows no "while you were away" catch-up). Callers flip `syncing` on
+  // (it starts true, and effects must not set state synchronously); this turns it off.
+  const runLoad = useCallback(
+    (computeDelta: boolean) => {
+      const req = ++loadReqRef.current
+      backend
+        .load(deviceIdRef.current, now())
+        .then((res) => {
+          if (req === loadReqRef.current) apply(res, computeDelta)
+        })
+        .catch(() => {
+          if (req === loadReqRef.current) setError('could not reach the tree')
+        })
+        .finally(() => {
+          if (req === loadReqRef.current) setSyncing(false)
+        })
+    },
+    [backend, apply, now],
+  )
+
   const sync = useCallback(() => {
+    setSyncing(true)
+    runLoad(true)
+  }, [runLoad])
+
+  const tend = useCallback(() => {
+    // A tend supersedes any in-flight load: bump the version so a stale load response
+    // can't clobber the canonical tend response (or its "while you were away" baseline).
     const req = ++loadReqRef.current
     setSyncing(true)
+    // Judge "was it struggling" against the state the visitor saw when they tapped.
+    const before = prevTreeRef.current
+    const wasStruggling = before !== null && ['wilting', 'critical'].includes(moodFor(before.health))
     backend
-      .load(deviceIdRef.current, now())
+      .tend(deviceIdRef.current, now())
       .then((res) => {
-        if (req === loadReqRef.current) apply(res, true)
+        apply(res, false) // a write's response is canonical — always apply
+        setLastTend({ id: ++tendIdRef.current, accepted: res.accepted, wasStruggling })
       })
-      .catch(() => {
-        if (req === loadReqRef.current) setError('could not reach the tree')
-      })
+      .catch(() => setError('your tend didn’t reach the tree'))
       .finally(() => {
         if (req === loadReqRef.current) setSyncing(false)
       })
-  }, [backend, apply])
-
-  const tend = useCallback(() => {
-    backend
-      .tend(deviceIdRef.current, now())
-      .then((res) => apply(res, false)) // a write's response is canonical — always apply
-      .catch(() => setError('your tend didn’t reach the tree'))
-  }, [backend, apply])
+  }, [backend, apply, now])
 
   const dismissDelta = useCallback(() => setLastDelta(null), [])
 
@@ -121,30 +163,24 @@ export function useInternetree(backend: TreeBackend = defaultBackend): Internetr
         sync()
       },
     }
-  }, [backend, sync])
+  }, [backend, sync, now])
 
   // Mount: identify device, then auto-sync (first load shows no catch-up).
   useEffect(() => {
     deviceIdRef.current = getDeviceId()
-    const req = ++loadReqRef.current
-    backend
-      .load(deviceIdRef.current, now())
-      .then((res) => {
-        if (req === loadReqRef.current) apply(res, false)
-      })
-      .catch(() => {
-        if (req === loadReqRef.current) setError('could not reach the tree')
-      })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    runLoad(false)
+  }, [runLoad])
 
-  // When the watering can is refilling, re-sync as the next drop lands so it visibly fills.
+  // When the watering can is refilling, re-sync as the next drop lands so it visibly
+  // fills. `nextTokenAt` is SERVER time — a client clock running ahead would compute a
+  // zero delay forever (each sync returns another past timestamp) and hammer the
+  // backend every 200ms, so the retry is floored to a calm worst case.
   useEffect(() => {
     if (nextTokenAt <= 0 || tokens >= TEND_BUCKET_CAP) return
     const delay = Math.max(0, nextTokenAt - now())
-    const id = setTimeout(sync, delay + 200)
+    const id = setTimeout(sync, Math.max(delay + 200, 5_000))
     return () => clearTimeout(id)
-  }, [nextTokenAt, tokens, sync])
+  }, [nextTokenAt, tokens, sync, now])
 
   return {
     tree: remote.tree,
@@ -158,8 +194,10 @@ export function useInternetree(backend: TreeBackend = defaultBackend): Internetr
     tokens,
     maxTokens: TEND_BUCKET_CAP,
     canTend: tokens >= 1,
+    nextTokenAt,
     lastDelta,
     dismissDelta,
+    lastTend,
     dev,
   }
 }

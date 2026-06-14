@@ -1,16 +1,9 @@
 import { useEffect, useRef } from 'react'
 import gsap from 'gsap'
 import type { TreeState } from '../engine/types'
-import { share } from '../share'
-
-function formatDuration(ms: number): string {
-  const days = Math.floor(ms / 86_400_000)
-  const hours = Math.floor((ms % 86_400_000) / 3_600_000)
-  const mins = Math.floor((ms % 3_600_000) / 60_000)
-  if (days > 0) return `${days}d ${hours}h`
-  if (hours > 0) return `${hours}h ${mins}m`
-  return `${mins}m`
-}
+import { memorialMessage } from '../share'
+import { ShareButton } from './ShareButton'
+import { formatDuration } from './format'
 
 function formatDied(ms: number): string {
   return new Date(ms).toLocaleDateString(undefined, {
@@ -19,14 +12,6 @@ function formatDied(ms: number): string {
     hour: 'numeric',
     minute: '2-digit',
   })
-}
-
-// The memorial is the shareable artifact — a proud "this is what we kept alive",
-// not a plea. Pride spreads further than asking for help.
-function shareMemorial(tree: TreeState, lived: string) {
-  share(
-    `Generation ${tree.generation} of the Internetree lived ${lived}, tended by ${tree.tendCount.toLocaleString()} strangers. A new one is growing — help keep it alive.`,
-  )
 }
 
 /**
@@ -68,9 +53,11 @@ export function Gravestone({ tree, focal = false }: { tree: TreeState; focal?: b
         <span className="grave-line">{tree.tendCount.toLocaleString()} tended</span>
         <span className="grave-died">died {died}</span>
         {focal && (
-          <button type="button" className="grave-share" onClick={() => shareMemorial(tree, lived)}>
-            ↗ share its story
-          </button>
+          <ShareButton
+            className="grave-share"
+            label="↗ share its story"
+            message={() => memorialMessage(tree, lived)}
+          />
         )}
       </figcaption>
     </figure>

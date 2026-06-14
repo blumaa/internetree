@@ -35,21 +35,6 @@ create table if not exists public.buckets (
 );
 alter table public.buckets enable row level security;
 
--- Seed a fresh sprout at apply time (epoch ms). Gen 1 begins.
-insert into public.tree (id, state, version)
-values (
-  1,
-  jsonb_build_object(
-    'generation', 1,
-    'health', 100,
-    'growth', 0,
-    'status', 'alive',
-    'updatedAt', (extract(epoch from now()) * 1000)::bigint,
-    'bornAt', (extract(epoch from now()) * 1000)::bigint,
-    'criticalSince', null,
-    'diedAt', null,
-    'tendCount', 0
-  ),
-  0
-)
-on conflict (id) do nothing;
+-- No seed here: the Edge Function's readTree() plants generation 1 via the engine's
+-- createTree() on first contact (SSOT — a SQL copy of TreeState would drift the
+-- moment the engine's shape or defaults change).

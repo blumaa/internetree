@@ -1,5 +1,6 @@
 import type { Mood, TreeState } from '../engine/types'
 import { moodFor, stageIndexFor } from '../engine/tree'
+import { HEALTH_MAX } from '../engine/config'
 
 /** Pure description of how the tree should look — no DOM, no GSAP. Fully testable. */
 export interface TreeVisual {
@@ -46,13 +47,14 @@ const clamp01 = (n: number) => Math.max(0, Math.min(1, n))
 // jumps when the mood/status changes. Crucially, health affects fullness (opacity +
 // leaf-drop), never the tree's SIZE; size is driven only by growth.
 function leanFor(health: number): number {
-  return 18 * Math.pow(1 - clamp01(health / 100), 1.3)
+  return 18 * Math.pow(1 - clamp01(health / HEALTH_MAX), 1.3)
 }
 function leafinessFor(health: number): number {
-  return 0.12 + 0.88 * Math.pow(clamp01(health / 100), 0.8)
+  return 0.12 + 0.88 * Math.pow(clamp01(health / HEALTH_MAX), 0.8)
 }
 function glowFor(health: number): number {
-  return clamp01((health - 20) / 80)
+  // dark below 20% health, full golden from 100%
+  return clamp01((health - 0.2 * HEALTH_MAX) / (0.8 * HEALTH_MAX))
 }
 
 // Per-stage SIZE differentiation lives in the blueprint geometry (a shoot is tiny

@@ -55,6 +55,45 @@
   z-index: 1;
 }
 
+/* "+care" — the visitor's tend, confirmed in words, floating off like a breath */
+.care-float {
+  position: absolute;
+  left: 50%;
+  top: 26%;
+  font-size: 0.85rem;
+  color: #234034;
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0;
+  animation: care-float 1.8s ease-out forwards;
+}
+
+@keyframes care-float {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 0);
+  }
+  15% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -28px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .care-float {
+    animation: care-fade 1.8s ease-out forwards;
+  }
+
+  @keyframes care-fade {
+    0% { opacity: 0; }
+    15% { opacity: 0.85; }
+    100% { opacity: 0; }
+  }
+}
+
 /* ambient motes — one soft glow per recent stranger's care */
 .motes {
   position: absolute;
@@ -178,7 +217,8 @@
   flex-direction: column;
   align-items: center;
   gap: 0.8rem;
-  padding-bottom: 1.5rem;
+  /* keep the buttons above the iOS home indicator (viewport-fit=cover is set) */
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 1.5rem));
   z-index: 1;
 }
 
@@ -188,21 +228,39 @@
   opacity: 0.6;
 }
 
+/* the watering can — its water level is the rate-limit state */
 .can {
   display: flex;
-  gap: 0.4rem;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.drop {
-  width: 0.7rem;
-  height: 0.7rem;
-  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
-  background: rgba(35, 64, 52, 0.18);
-  transition: background 0.3s ease;
+.wcan {
+  width: 2.6rem;
+  height: auto;
+  overflow: visible;
 }
 
-.drop--full {
-  background: #4fa6d8;
+.wcan-line {
+  fill: none;
+  stroke: #2c4a3a;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.75;
+}
+
+.wcan-water {
+  fill: #4fa6d8;
+  opacity: 0.85;
+  transition: y 0.5s ease, height 0.5s ease;
+}
+
+.can-label {
+  font-size: 0.78rem;
+  color: #2c4a3a;
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
 }
 
 .footer-links {
@@ -237,8 +295,9 @@
   left: 50%;
   transform: translateX(-50%);
   max-width: calc(100% - 2rem);
-  appearance: none;
-  border: none;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
   border-radius: 999px;
   padding: 0.5rem 1rem;
   background: rgba(255, 255, 255, 0.85);
@@ -246,8 +305,24 @@
   box-shadow: 0 6px 18px rgba(31, 74, 44, 0.18);
   color: #234034;
   font-size: 0.82rem;
-  cursor: pointer;
   z-index: 8;
+}
+
+.delta-text,
+.delta-share {
+  appearance: none;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.delta-share {
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 /* Dev harness toggle — Stage-1 only */
@@ -367,6 +442,12 @@
 
 /* darker ink for secondary text → meets WCAG AA contrast on the light meadow */
 .ambient { color: #2c4a3a; opacity: 0.92; }
+
+/* the tree is dying — quiet urgency, same spot, no banner */
+.ambient--critical {
+  color: #8a2c1f;
+  opacity: 1;
+}
 .hint { color: #2c4a3a; opacity: 0.85; }
 .link-btn { color: #244033; opacity: 0.82; }
 .grave-line { color: #2c4a3a; opacity: 0.85; }

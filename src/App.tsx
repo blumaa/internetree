@@ -3,27 +3,33 @@ import { Analytics } from '@vercel/analytics/react'
 import { useInternetree, type Delta } from './sim/useInternetree'
 import { Timeline } from './render/Timeline'
 import { Motes } from './render/Motes'
-import { share } from './share'
+import { WateringCan } from './render/WateringCan'
+import { ShareButton } from './render/ShareButton'
+import { useNow } from './render/useNow'
+import { formatAge, DAY } from './render/format'
+import { inviteMessage, prideMessage } from './share'
 import { stageFor, moodFor } from './engine/tree'
+import type { TreeState } from './engine/types'
 import './App.css'
-
-const DAY = 86_400_000
-
-function shareInvite(generation: number, keepers: number) {
-  share(
-    keepers > 0
-      ? `Internetree — generation ${generation}, kept alive by ${keepers.toLocaleString()} people. help keep it alive.`
-      : "help keep the internet's tree alive",
-  )
-}
 
 function deltaText(d: Delta): string {
   if (d.newGeneration) return 'a tree fell while you were away — a new one is rising'
   const parts: string[] = []
+  if (d.rescued) parts.push('strangers pulled it back from the brink')
   if (d.tended > 0) parts.push(`${d.tended.toLocaleString()} tended it`)
   if (d.grew) parts.push('it grew')
   if (parts.length === 0) parts.push(d.healthDelta < 0 ? "it's been quiet" : 'all calm')
   return `while you were away · ${parts.join(' · ')}`
+}
+
+function ambientText(tree: TreeState, keepers: number, now: number): string {
+  const age = tree.bornAt > 0 ? formatAge(Math.max(0, now - tree.bornAt)) : null
+  if (tree.status === 'critical') return age ? `needs help now · ${age}` : 'needs help now'
+  if (keepers > 0) {
+    const kept = `kept alive by ${keepers.toLocaleString()} ${keepers === 1 ? 'person' : 'people'}`
+    return age ? `${kept} · ${age}` : kept
+  }
+  return 'one tree. keep it alive together.'
 }
 
 function App() {
@@ -39,20 +45,21 @@ function App() {
     canTend,
     tokens,
     maxTokens,
+    nextTokenAt,
     lastDelta,
     dismissDelta,
+    lastTend,
     dev,
   } = useInternetree()
   const [showDev, setShowDev] = useState(false)
+  const now = useNow(30_000)
 
   return (
     <div className="scene">
       <header className="brand">
         <h1>Internetree</h1>
-        <p className="ambient">
-          {keepers > 0
-            ? `kept alive by ${keepers.toLocaleString()} ${keepers === 1 ? 'person' : 'people'}`
-            : 'one tree. keep it alive together.'}
+        <p className={tree.status === 'critical' ? 'ambient ambient--critical' : 'ambient'}>
+          {ambientText(tree, keepers, now)}
         </p>
       </header>
 
@@ -65,37 +72,45 @@ function App() {
         </div>
       ) : (
         lastDelta && (
-          <button type="button" className="delta" onClick={dismissDelta}>
-            {deltaText(lastDelta)}
-          </button>
+          <div className="delta">
+            <button type="button" className="delta-text" onClick={dismissDelta}>
+              {deltaText(lastDelta)}
+            </button>
+            {(lastDelta.grew || lastDelta.rescued) && !lastDelta.newGeneration && (
+              <ShareButton
+                className="delta-share"
+                label="↗ share"
+                message={() => prideMessage(lastDelta.rescued, tree.generation, stageFor(tree.growth))}
+              />
+            )}
+          </div>
         )
       )}
 
       <main className="stage">
         <Motes count={recentTends.length} />
+        {lastTend?.accepted && (
+          <span key={lastTend.id} className="care-float" aria-hidden="true">
+            {lastTend.wasStruggling ? '+care · thank you' : '+care'}
+          </span>
+        )}
         <Timeline tree={tree} history={history} canTend={canTend} onTend={tend} />
       </main>
 
       <footer className="actions">
         <p className="hint">
-          {canTend ? 'tap the tree to tend it' : 'your watering can is empty — refills soon'}
+          {canTend ? 'tap the tree to tend it' : 'your watering can is empty'}
         </p>
-        <div className="can" aria-label={`${tokens} of ${maxTokens} tends left in your watering can`}>
-          {Array.from({ length: maxTokens }).map((_, i) => (
-            <span key={i} className={i < tokens ? 'drop drop--full' : 'drop'} />
-          ))}
-        </div>
+        <WateringCan tokens={tokens} maxTokens={maxTokens} nextTokenAt={nextTokenAt} now={now} />
         <div className="footer-links">
           <button type="button" className="link-btn" onClick={sync} disabled={syncing}>
             {syncing ? 'syncing…' : '↻ sync'}
           </button>
-          <button
-            type="button"
+          <ShareButton
             className="link-btn"
-            onClick={() => shareInvite(tree.generation, keepers)}
-          >
-            ↗ invite a friend
-          </button>
+            label="↗ invite a friend"
+            message={() => inviteMessage(tree.generation, keepers)}
+          />
         </div>
       </footer>
 

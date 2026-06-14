@@ -7,6 +7,7 @@ import {
   BASE_DROUGHT_MS,
   BASE_GRACE_MS,
   MOURNING_MS,
+  HISTORY_CAP,
 } from '../engine/config'
 
 const T0 = 1_700_000_000_000
@@ -37,6 +38,25 @@ describe('localBackend — load', () => {
     expect(after.remote.tree.generation).toBe(2)
     expect(after.remote.history).toHaveLength(1)
     expect(after.remote.history[0].generation).toBe(1)
+  })
+
+  it('caps the stored graveyard so history cannot grow unbounded', async () => {
+    const be = createLocalBackend(memoryStore())
+    const lifetime = BASE_DROUGHT_MS + BASE_GRACE_MS + MOURNING_MS
+    // sail past far more generations than the cap in one absence
+    const after = await be.load('device-a', T0 + lifetime * (HISTORY_CAP + 20))
+    expect(after.remote.history.length).toBeLessThanOrEqual(HISTORY_CAP)
+  })
+
+  it('drops fully-refilled buckets from storage (no unbounded device map)', async () => {
+    const store = memoryStore()
+    const be = createLocalBackend(store)
+    await be.tend('device-a', T0)
+    const buckets = () => JSON.parse(store.read()!).buckets as Record<string, unknown>
+    expect(buckets()).toHaveProperty('device-a')
+    // after a full refill the bucket is identical to no bucket — prune it
+    await be.load('device-b', T0 + TEND_BUCKET_CAP * TEND_REFILL_MS + MIN)
+    expect(buckets()).not.toHaveProperty('device-a')
   })
 })
 

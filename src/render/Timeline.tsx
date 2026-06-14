@@ -28,6 +28,7 @@ export function Timeline({
   // on lineage changes AND on viewport resize (orientation / responsive),
   // otherwise the row stays pinned to a stale centre and the tree drifts off-screen.
   useEffect(() => {
+    let tween: gsap.core.Tween | null = null
     const recenter = (animate: boolean) => {
       const viewport = viewportRef.current
       const row = rowRef.current
@@ -35,12 +36,16 @@ export function Timeline({
       const current = row.querySelector<HTMLElement>('[data-current]')
       if (!current) return
       const target = viewport.clientWidth / 2 - (current.offsetLeft + current.offsetWidth / 2)
-      gsap.to(row, { x: target, duration: animate ? 1.2 : 0, ease: 'power3.inOut' })
+      tween?.kill() // a resize mid-pan must not fight the pan in flight
+      tween = gsap.to(row, { x: target, duration: animate ? 1.2 : 0, ease: 'power3.inOut' })
     }
     recenter(true)
     const onResize = () => recenter(false)
     window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
+    return () => {
+      tween?.kill()
+      window.removeEventListener('resize', onResize)
+    }
   }, [history.length, currentIsGrave])
 
   return (
